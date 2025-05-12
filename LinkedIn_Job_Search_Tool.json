@@ -1,0 +1,1158 @@
+{
+  "name": "LinkedIn Job Post Fetcher",
+  "nodes": [
+    {
+      "parameters": {
+        "url": "https://rss.app/feeds/9FESxTfsAynEZTyE.xml",
+        "options": {}
+      },
+      "name": "RSS Feed Read",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1,
+      "position": [
+        -580,
+        1110
+      ],
+      "id": "9e13155c-7024-46ca-aecb-1ff97c86c518"
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Loop Over Items').item.json.link }}",
+        "responseFormat": "string",
+        "options": {}
+      },
+      "name": "Fetch Job HTML",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [
+        960,
+        860
+      ],
+      "id": "ff918ed1-2cce-411b-b56a-1b00a8f2cb23"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1rFarwBb75CyqiAlxob1BOOamH9RNM1Taga6PgftOkPs",
+          "mode": "list",
+          "cachedResultName": "LinkedIn Jobs",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1rFarwBb75CyqiAlxob1BOOamH9RNM1Taga6PgftOkPs/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Sheet1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1rFarwBb75CyqiAlxob1BOOamH9RNM1Taga6PgftOkPs/edit#gid=0"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        80,
+        860
+      ],
+      "id": "6c9b2aa2-7369-45e1-addc-5b4181e37e80",
+      "name": "Google Sheets",
+      "executeOnce": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "g2HbOqHgbmRYNtvG",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "deepseek/deepseek-chat-v3-0324:free",
+          "mode": "list",
+          "cachedResultName": "DEEPSEEK/DEEPSEEK-CHAT-V3-0324:FREE"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "=Given the data that got extracted from a Linkedin Job posting ({{ $json.jobDescription }}). I want you to read this Linkedin Job posting data and ONLY output a optimized summary. This job summary must contain: Required & Preferred skills, Key responsibilities, Job title, seniority level, Tools and technologies, Years of experience expected based, Industry or domain expertise, Key performance indicators (if mentioned), Language requirements, Location or remotework options."
+            }
+          ]
+        },
+        "options": {
+          "temperature": 0.2
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.8,
+      "position": [
+        -800,
+        400
+      ],
+      "id": "ba3514a4-8bda-40bd-abe6-51f54f82be32",
+      "name": "OpenAI",
+      "retryOnFail": false,
+      "alwaysOutputData": false,
+      "credentials": {
+        "openAiApi": {
+          "id": "h0wNv9OtOiSlUs8j",
+          "name": "OpenAi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "return items.map(item => {\n  const rawHtml = item.json.data\n    || item.json.body\n    || (item.binary?.data?.toString('utf8'))\n    || '';\n\n  // Meta‐tag helper\n  function extractMeta(prop, attr = 'property') {\n    const re = new RegExp(\n      `<meta[^>]*${attr}=[\"']${prop}[\"'][^>]*content=[\"']([^\"']+)[\"']`,\n      'i'\n    );\n    const m = rawHtml.match(re);\n    return m ? m[1].trim() : '';\n  }\n\n  // COMPANY (unchanged from before) …\n  const companyName =\n    extractMeta('og:site_name') ||\n    rawHtml.match(\n      /<a[^>]*class=[\"'][^\"']*(?:topcard__org-name-link)[^\"']*[\"'][^>]*>([^<]+)<\\/a>/i\n    )?.[1].trim() ||\n    rawHtml.match(\n      /<span[^>]*class=[\"'][^\"']*(?:jobs-unified-top-card__company-name)[^\"']*[\"'][^>]*>([^<]+)<\\/span>/i\n    )?.[1].trim() ||\n    '';\n\n  // 1. Grab the raw OG title (or fallback h1)\n  let rawTitle =\n    extractMeta('og:title') ||\n    extractMeta('twitter:title', 'name') ||\n    (rawHtml.match(/<h1[^>]*>([\\s\\S]*?)<\\/h1>/i)?.[1].replace(/<[^>]+>/g,' ').trim()) ||\n    '';\n\n  // 2. If it’s the LinkedIn pattern \"X hiring Y in Z | LinkedIn\",\n  //    pull Y; otherwise leave as-is.\n  const m = rawTitle.match(/hiring\\s+(.+?)\\s+in\\s+.*\\|\\s*LinkedIn$/i);\n  const jobTitle = m ? m[1] : rawTitle;\n\n  // DESCRIPTION (unchanged) …\n  const descClasses = ['job-description','description','jd-block','description__text'];\n  let jobDescription = '';\n  for (const cls of descClasses) {\n    const re = new RegExp(\n      `<div[^>]*class=[\"'][^\"']*${cls}[^\"']*[\"'][^>]*>([\\\\s\\\\S]*?)<\\\\/div>`,\n      'i'\n    );\n    const mm = rawHtml.match(re);\n    if (mm?.[1]) { jobDescription = mm[1]; break; }\n  }\n  jobDescription = jobDescription\n    .replace(/<[^>]+>/g,' ')\n    .replace(/\\s+/g,' ')\n    .trim()\n    .substring(0,10000);\n\n  return { json: { companyName, jobTitle, jobDescription } };\n});\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1180,
+        860
+      ],
+      "id": "1798c9a7-809c-4d96-a985-eba80e8e802a",
+      "name": "Parse HTTP response"
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "deepseek/deepseek-chat-v3-0324:free",
+          "mode": "list",
+          "cachedResultName": "DEEPSEEK/DEEPSEEK-CHAT-V3-0324:FREE"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "=You're an intelligent bot rating how closely a job listing is to a candidates skill set, on a score of 100. Ouptput only the score, nothing else, no summary, no header, no sugessions.\n\nJob Description: {{ $json.output }}\n\nHere is the candidates skill set:\n📄 SAMPLE RESUME\n\nCHIRAG KHACHANE\n(716) 617-1669 | chiragkhachane.ck71@gmail.com | LinkedIn | Website\n\nWORK EXPERIENCE\nMyTreks.ai \nSenior Business Analyst\nOct 2024 Present\n-\nManaged 3 offshore teams across time zones, ensuring seamless delivery of cloud solutions within tight deadlines.\nBenchmarked 15+ competitors, uncovering market gaps and industry trends to steer product roadmap and feature design.\nElicited, documented, and validated business workflows, aligning executives and development teams with technical feasibility.\nBuilt product roadmap with prioritized user stories with user feedback loops, ensuring cross-functional team alignment.\nFacilitated cross-functional collaboration across executives, design, engineering, and marketing teams to align product vision.\nFurnished data-backed strategic recommendations to optimize product roadmap and accelerate product delivery.\n\nThird Estate Ventures\nSenior Business Analyst\nJan 2024 Present\n-\nIdentified 35 new business prospects valued at $7M by spearheading the development of an LLM-based risk prediction engine.\nEmpowered business decisions by leading a team of 7 to architect and deploy a scalable cloud data warehousing solution.\nReduced data latency by 30% via Snowflake, Python/SQL automation, enabling faster insights for business-critical decisions.\nDrove 30% efficiency gains by translating cloud analytics and Salesforce CRM data into actionable dashboards & strategies.\nBoosted prediction outcomes by 15% by executing AI experiments in Agile, leveraging prompt engineering and debugging.\n\nPrimary Care IPA New York\nBusiness Analyst\nAug 2023 Dec 2023\n-\nFormulated risk stratification model for Medicaid/Commercial patients, identifying top 1% population driving 20% of costs.\nDelivered real-time data-driven Tableau dashboards to optimize $200K in costs while improving patient healthcare.\nReduced decision turnaround by 20% & accelerated delivery via stakeholder strategy sessions, aligning clinical/technical teams.\n\nAccenture\nBusiness Analyst\nAug 2021 May 2023\n-\nOptimized data storage saving $3M by enabling proactive data management strategies.\nElevated strategic planning with advanced analytics by articulating diverse data and presenting Power BI dashboards.\nCut project delivery time by 15% by leading 100+ stakeholder discussions to define clear requirements and create user stories.\nStreamlined development by designing solution architecture and clear process flow diagrams.\nAccomplished 100% milestones ahead of schedule, earning a Certificate of Appreciation from leadership.\n\nLEADERSHIP EXPERIENCE\nChampioned Agile adoption for 7+ teams, slashing delays by 20% through mentorship and process innovation.\nLed BI training initiative for 120+ students, advancing data skills to drive actionable business insights.\nEarned ACM Excellence Award for mentoring 100+ students and driving nationwide tech education initiatives.\n\nSKILLS\nBusiness Analysis: Requirement Gathering, Stakeholder Management, Process Flow Mapping, Competitor Analysis, Scrum\nProject Management: Stakeholder Alignment, Change Management, Agile Coaching\nProgramming Languages: Python (Pandas, Matplotlib, TensorFlow), Node.js\nTools: SQL, Power BI, Tableau, Snowflake, Google Analytics, Microsoft Office Suite, Excel, Jira, Confluence, Figma\nCertifications: AWS Solutions Architect, Tableau Desktop Specialist, Microsoft Power BI, Snowflake SnowPro Core, CSM, CSPO"
+            }
+          ]
+        },
+        "options": {
+          "temperature": 0.2
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.8,
+      "position": [
+        -800,
+        140
+      ],
+      "id": "f7bde98a-aef4-44c8-a0e9-fd1c4b353c15",
+      "name": "OpenAI1",
+      "credentials": {
+        "openAiApi": {
+          "id": "h0wNv9OtOiSlUs8j",
+          "name": "OpenAi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "link",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        -360,
+        1110
+      ],
+      "id": "84f8e0b1-ccae-4212-8a89-919d2048c51e",
+      "name": "Split Out"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        -140,
+        1110
+      ],
+      "id": "4531998a-9808-4105-bcf4-4b54c5016993",
+      "name": "Loop Over Items"
+    },
+    {
+      "parameters": {
+        "command": "echo \"workflow done\""
+      },
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        80,
+        660
+      ],
+      "id": "131c4ade-e027-4b7d-b7a6-25a62a285b60",
+      "name": "Execute Command"
+    },
+    {
+      "parameters": {
+        "amount": 10
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        740,
+        860
+      ],
+      "id": "e505e70b-4048-4877-9a78-1b5ae863fe0b",
+      "name": "Wait",
+      "webhookId": "0d001b3d-7de7-4656-b36d-b985429a0456"
+    },
+    {
+      "parameters": {
+        "keep": "lastItems"
+      },
+      "type": "n8n-nodes-base.limit",
+      "typeVersion": 1,
+      "position": [
+        300,
+        860
+      ],
+      "id": "bd5eb607-f300-4b98-9228-c56a0a3f057f",
+      "name": "Limit"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.Link }}",
+              "value2": "={{ $('Split Out').item.json.link }}"
+            }
+          ]
+        }
+      },
+      "name": "Job Exists",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        520,
+        860
+      ],
+      "id": "07776776-582a-4aff-b233-d9b3da97392b"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=You are an intelligent bot expert at tailoring a candidate's work experience to a specific job description.\n\nYour task:\n\nFor each company in the resume (fetched from Google Docs), generate detailed, metrics-driven bullet points that align with the job description. Focus on keywords from provided Keyword list. Incorporate the keywords in the resume. The resume should score 95+ on ATS.\n\nOutput ONLY valid JSON in this format:\n\njson\n{\n  \"MyTreksExperience\": \"[bullet 1]\\n[bullet 2]\\n[bullet 3]\\n[bullet 4]\\n[bullet 5]\",\n  \"ThirdEstateExperience\": \"[bullet 1]\\n[bullet 2]\\n[bullet 3]\\n[bullet 4]\",\n  \"PrimaryCareExperience\": \"[bullet 1]\\n[bullet 2]\\n[bullet 3]\",\n  \"AccentureExperience\": \"[bullet 1]\\n[bullet 2]\\n[bullet 3]\\n[bullet 4]\"\n  \"AtreyaExperience\": \"[bullet 1]\\n[bullet 2]\\n[bullet 3]\"\n}\n\nInstructions:\nNO introductions, summaries, or explanations — only JSON.\n\nFor each bullet:\nStart with a strong action verb (e.g., \"Spearheaded,\" \"Designed,\" \"Automated\").\nSpecify the method/technology used (e.g., \"using Agile workflows,\" \"via Python scripting\").\nInclude scope/scale (e.g., \"for 15K users,\" \"across 10+ departments\").\nQuantify achievements in ≥80% of bullets, emphasizing both input metrics (e.g., \"3 TB of data\") and outcomes (e.g., \"reducing costs by 25%\").\nMirror keywords/phrases from the job description to highlight relevance.\nUse \"–\" for consistency\n\nKeywords:\n{{ $json.output }}\n\nJob Description:\n{{ $('Parse HTTP response').item.json.jobDescription }}\n\nExample:\n\nWeak: \"Optimized data storage, saving $3M.\"\n\nStrong: \"Optimized enterprise data storage across 3 TB using proactive data-lifecycle management, reducing storage costs by 25% and saving $3M annually.\"\n\nProfessional Information is preloaded from Google Docs.",
+        "options": {
+          "systemMessage": "Write the bullet points thinking what a recruiting manager and HR would be looking for while reading this resume. Optimize in that sense. Fill in all Keywords and optimize as much as possible for the ATS."
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.9,
+      "position": [
+        3536,
+        860
+      ],
+      "id": "3736b8b4-2ad6-4d53-bae8-d82ee872e76e",
+      "name": "AI Agent"
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "documentURL": "=https://docs.google.com/document/d/1oVD1XYjfrrQMbW2NOjAUPxmTyUs00VRv1zeVB8byHes/edit?tab=t.0"
+      },
+      "type": "n8n-nodes-base.googleDocsTool",
+      "typeVersion": 2,
+      "position": [
+        3684,
+        1080
+      ],
+      "id": "10d4b61f-0516-4e5f-90f2-e7bbb2ab1b9e",
+      "name": "Google Docs",
+      "credentials": {
+        "googleDocsOAuth2Api": {
+          "id": "tf10f6w3InP6gNmh",
+          "name": "Google Docs account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst results = [];\n\nfor (const item of items) {\n  const raw = item.json?.output;\n\n  if (typeof raw === 'string') {\n    try {\n      const cleaned = raw.replace(/^```json\\s*|\\s*```$/g, \"\").trim();\n      const safeClean = cleaned.endsWith(\"}\") ? cleaned : cleaned + \"}\";\n      const parsed = JSON.parse(safeClean);\n\n      // Push each parsed object as a whole item\n      results.push(parsed);\n\n    } catch (e) {\n      // Skip malformed JSON silently\n      continue;\n    }\n  }\n}\n\nreturn results;\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3912,
+        860
+      ],
+      "id": "39367125-73b6-4f1e-9366-8079969d24d0",
+      "name": "Code"
+    },
+    {
+      "parameters": {
+        "operation": "copy",
+        "fileId": {
+          "__rl": true,
+          "value": "1vzyXSCydSmD_7_5uzk1CQeb5Qqzg2XLVKIl8oO82EPE",
+          "mode": "list",
+          "cachedResultName": "Harvard Resume Template",
+          "cachedResultUrl": "https://docs.google.com/document/d/1vzyXSCydSmD_7_5uzk1CQeb5Qqzg2XLVKIl8oO82EPE/edit?usp=drivesdk"
+        },
+        "name": "=Chirag_K_{{ $('Parse HTTP response').item.json.companyName }}_{{ $now.format('MM-dd-yyyy') }}",
+        "sameFolder": false,
+        "driveId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "My Drive"
+        },
+        "folderId": {
+          "__rl": true,
+          "value": "1MHO8RtF3d6ksGb-F3-nOWurYR4WMlOXO",
+          "mode": "list",
+          "cachedResultName": "DOCS",
+          "cachedResultUrl": "https://drive.google.com/drive/folders/1MHO8RtF3d6ksGb-F3-nOWurYR4WMlOXO"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        4132,
+        860
+      ],
+      "id": "efd6e029-42a6-4fe8-9425-d3052b3013ea",
+      "name": "Google Drive",
+      "executeOnce": true,
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "HO2IZHGsKNB6DGRo",
+          "name": "Google Drive account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentURL": "={{ $json.id }}",
+        "actionsUi": {
+          "actionFields": [
+            {
+              "action": "replaceAll",
+              "text": "=MyTreks.ai_experience",
+              "replaceText": "={{ $('Code').item.json.MyTreksExperience }}"
+            },
+            {
+              "action": "replaceAll",
+              "text": "Third_Estate_experience",
+              "replaceText": "={{ $('Code').item.json.ThirdEstateExperience }}"
+            },
+            {
+              "action": "replaceAll",
+              "text": "Accenture_experience",
+              "replaceText": "={{ $('Code').item.json.AccentureExperience }}"
+            },
+            {
+              "action": "replaceAll",
+              "text": "Atreya_Innovations_experience",
+              "replaceText": "={{ $('Code').item.json.AtreyaExperience }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.googleDocs",
+      "typeVersion": 2,
+      "position": [
+        4352,
+        860
+      ],
+      "id": "69b7ce1c-5a7a-4370-9697-d0449809fc54",
+      "name": "Google Docs1",
+      "credentials": {
+        "googleDocsOAuth2Api": {
+          "id": "tf10f6w3InP6gNmh",
+          "name": "Google Docs account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "download",
+        "fileId": {
+          "__rl": true,
+          "value": "={{ $json.documentId }}",
+          "mode": "id"
+        },
+        "options": {
+          "googleFileConversion": {
+            "conversion": {
+              "docsToFormat": "application/pdf"
+            }
+          },
+          "fileName": "={{ $('Google Drive').item.json.name }}"
+        }
+      },
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        4572,
+        860
+      ],
+      "id": "98d238a4-50c6-4b33-8226-62e9cf966858",
+      "name": "Google Drive1",
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "HO2IZHGsKNB6DGRo",
+          "name": "Google Drive account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "name": "={{ $('Google Drive').item.json.name }}",
+        "driveId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "My Drive"
+        },
+        "folderId": {
+          "__rl": true,
+          "value": "1AeqtLFmcFS9ZDKSGFpL3DFadxWkkP0Jc",
+          "mode": "list",
+          "cachedResultName": "PDFs",
+          "cachedResultUrl": "https://drive.google.com/drive/folders/1AeqtLFmcFS9ZDKSGFpL3DFadxWkkP0Jc"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        4792,
+        860
+      ],
+      "id": "4d5ea102-fb89-473f-a89a-b3701804df73",
+      "name": "Google Drive3",
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "HO2IZHGsKNB6DGRo",
+          "name": "Google Drive account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1rFarwBb75CyqiAlxob1BOOamH9RNM1Taga6PgftOkPs",
+          "mode": "list",
+          "cachedResultName": "LinkedIn Jobs",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1rFarwBb75CyqiAlxob1BOOamH9RNM1Taga6PgftOkPs/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Sheet1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1rFarwBb75CyqiAlxob1BOOamH9RNM1Taga6PgftOkPs/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Resume PDF": "={{ $json.webViewLink }}",
+            "Resume DOCS": "=https://docs.google.com/document/d/{{ $('Google Docs1').item.json.documentId }}/edit?tab=t.0",
+            "Link": "={{ $('Loop Over Items').item.json.link }}",
+            "Title": "={{ $('Parse HTTP response').item.json.jobTitle }}",
+            "Job Description": "={{ $('Parse HTTP response').item.json.jobDescription }}",
+            "Company Name": "={{ $('Parse HTTP response').item.json.companyName }}",
+            "Date ": "={{ $('RSS Feed Read').item.json.pubDate }}"
+          },
+          "matchingColumns": [
+            "Link"
+          ],
+          "schema": [
+            {
+              "id": "Title",
+              "displayName": "Title",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Company Name",
+              "displayName": "Company Name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Job Description",
+              "displayName": "Job Description",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Link",
+              "displayName": "Link",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Date ",
+              "displayName": "Date ",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Resume DOCS",
+              "displayName": "Resume DOCS",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Resume PDF",
+              "displayName": "Resume PDF",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        5012,
+        985
+      ],
+      "id": "a894b4c2-1951-4276-8fe8-9fea76a378db",
+      "name": "Google Sheets3",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "g2HbOqHgbmRYNtvG",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 2
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -800,
+        1110
+      ],
+      "id": "a36b5467-e93d-4a30-b5d1-cb058cf0ff0b",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "39199161-14e5-4622-a6b2-632e15721231",
+              "leftValue": "={{ $json.companyName }}",
+              "rightValue": "Lensa",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            },
+            {
+              "id": "633fecfc-6923-456d-a5d1-d31ca374577a",
+              "leftValue": "={{ $json.jobTitle }}",
+              "rightValue": "=^\\d",
+              "operator": {
+                "type": "string",
+                "operation": "regex"
+              }
+            }
+          ],
+          "combinator": "or"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1400,
+        860
+      ],
+      "id": "4d29b4c8-c377-4128-8995-fad9ad857a0f",
+      "name": "Company and RSS feed filter"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=You are an intelligent job search agent. You excel at rating a job based on matching with my experience. You will output a job matching score out of 100. The output is just a number. No summary, No header, no explanation.\nMy Professional Information:  {{ $json.content }}\nJob Description: {{ $('Parse HTTP response').item.json.jobDescription }}",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.9,
+      "position": [
+        1840,
+        860
+      ],
+      "id": "4eb040d6-5e2e-43bc-a0a6-d360afeb3cfe",
+      "name": "AI Agent1"
+    },
+    {
+      "parameters": {
+        "model": "deepseek/deepseek-chat-v3-0324:free",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenRouter",
+      "typeVersion": 1,
+      "position": [
+        1780,
+        1060
+      ],
+      "id": "a65a6cc9-29a2-457a-8235-9401fb43ed62",
+      "name": "OpenRouter Chat Model",
+      "credentials": {
+        "openRouterApi": {
+          "id": "Yx0CjerjtX8CRS81",
+          "name": "OpenRouter account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "documentURL": "https://docs.google.com/document/d/1oVD1XYjfrrQMbW2NOjAUPxmTyUs00VRv1zeVB8byHes/"
+      },
+      "type": "n8n-nodes-base.googleDocs",
+      "typeVersion": 2,
+      "position": [
+        1620,
+        860
+      ],
+      "id": "2d555395-6b65-4372-a282-57a6f06f4274",
+      "name": "Google Docs2",
+      "credentials": {
+        "googleDocsOAuth2Api": {
+          "id": "tf10f6w3InP6gNmh",
+          "name": "Google Docs account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "model": "deepseek/deepseek-chat-v3-0324:free",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenRouter",
+      "typeVersion": 1,
+      "position": [
+        2400,
+        1060
+      ],
+      "id": "f7d2ebe2-66ec-427e-9403-2f38d0a8f330",
+      "name": "OpenRouter Chat Model1",
+      "credentials": {
+        "openRouterApi": {
+          "id": "Yx0CjerjtX8CRS81",
+          "name": "OpenRouter account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "options": {
+          "temperature": 0.8
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatDeepSeek",
+      "typeVersion": 1,
+      "position": [
+        3560,
+        1080
+      ],
+      "id": "74ad5458-d8df-4acd-999c-955a100e9f90",
+      "name": "DeepSeek Chat Model",
+      "credentials": {
+        "deepSeekApi": {
+          "id": "OqEHcUCXrLFOEl9m",
+          "name": "DeepSeek account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "51e25279-3e50-4b20-a11d-f51556246983",
+              "leftValue": "={{ Number($json.output) }}",
+              "rightValue": 85,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2200,
+        860
+      ],
+      "id": "52fa5c02-cdcc-439a-9612-d544ab1f6b62",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "model": "deepseek/deepseek-r1-distill-llama-70b:free",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenRouter",
+      "typeVersion": 1,
+      "position": [
+        2860,
+        1060
+      ],
+      "id": "3bf25c26-b7c4-4d4e-a5c3-9857953e3e88",
+      "name": "OpenRouter Chat Model2",
+      "credentials": {
+        "openRouterApi": {
+          "id": "Yx0CjerjtX8CRS81",
+          "name": "OpenRouter account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=You are a intelligent job searching agent. You are expert at extracting keywords from Job Description for high ATS keyword match. Output a list of keywords that should be used in my resume for a high ATS score, No summary, No Headers.\nJob Description:  {{ $('Parse HTTP response').item.json.jobDescription }}",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.9,
+      "position": [
+        2520,
+        860
+      ],
+      "id": "c2a51708-5596-419b-a294-bf8550d95b27",
+      "name": "Keyword Agent"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=You are a professional resume summary tailoring agent. Output only the summary. There should be no titles, no explanations, no headers, no footers. Do not use line breaks or any formatting. Refer to the given examples for output format.\nInstructions\nAnalyze the provided job description and professional information, then create a tailored professional summary that positions the candidate as an ideal match for the specific role. Follow these guidelines:\n\nStep 1: Analyze the Job Description\n\nIdentify the key requirements, responsibilities, qualifications, and skills requested\nNote industry-specific terminology and keywords\nDetermine the company's values, culture, and priorities based on language used\nIdentify the most critical \"must-have\" qualifications\n\nStep 2: Analyze the Professional Information\n\nReview the candidate's experience, skills, education, and achievements\nIdentify strengths and experiences that align with the job requirements\nNote unique selling points that differentiate the candidate\nAlways use \"4-5 years\" as the exact experience phrase in the summary\nOnly use facts from the professional information provided\n\nStep 3: Create a Tailored Professional Summary\n\nWrite a concise summary (50-60 words) that demonstrates alignment\nALWAYS begin with \"[Job Title] with 4-5 years experience in [relevant field]\"\nEmphasize experiences and achievements that directly relate to key job requirements\nIncorporate relevant industry terminology and keywords naturally\nQuantify achievements with specific metrics and results where possible\nUse clear, direct language with active voice; avoid overused terms like \"adept,\" \"passionate,\" \"detail-oriented,\" \"team player,\" or \"results-driven\"\nStructure as 2-3 impactful sentences that flow logically\nFocus on concrete contributions and proven capabilities rather than self-descriptive adjectives\nReplace generic claims with specific examples of work that demonstrate skills\nEliminate empty business jargon and buzzwords that don't add substance\n\nStep 4: Review and Optimize\n\nEnsure the summary directly addresses the most important job requirements\nVerify that the summary ALWAYS begins with \"5 years\" as the experience level\nVerify that industry-specific keywords and technical terms are incorporated naturally for ATS optimization\nConfirm that unique qualifications and achievements are highlighted with concrete examples\nEliminate overused phrases, clichés, and empty business jargon\nReplace subjective self-descriptions with objective evidence of skills and capabilities\nEnsure metrics and specific achievements stand out visually in the summary\nCheck that the language projects confidence through statements of fact rather than claims of quality\nRemove any phrases that could appear in thousands of other summaries (e.g., \"excellent communication skills\")\nVerify that no information has been invented or exaggerated beyond what was provided\n\nOutput Format\nALWAYS begin with \"[Job Title] with 5 years experience in [relevant field]\" exactly as written. Follow with 1-2 sentences highlighting specific achievements and skills that match key job requirements. Keep total length to 50-60 words.\n\nExample Input: Business Analyst Role\nJob Description: Business Analyst at a financial services firm specializing in investment management. Responsibilities include gathering and documenting business requirements, analyzing data to identify trends, creating financial models, and presenting insights to stakeholders. Requirements include 4+ years of experience in financial analysis, proficiency in SQL and Excel, and knowledge of business intelligence tools.\nProfessional Information: Experience in business analysis across banking and fintech sectors. Implemented process improvements that reduced reporting time by 35%. Created data visualization dashboards that increased decision-making efficiency. MBA with concentration in Finance. Certified in SQL, Tableau, and Power BI. Experience with regulatory compliance reporting and stakeholder management.\n\nExample Output:\nBusiness Analyst with 5 years experience in financial services, specializing in investment data analysis and process optimization. Reduced reporting cycles by 35% through SQL automation and created Tableau dashboards that improved portfolio management decisions. Experienced in regulatory compliance reporting with technical expertise in financial modeling.\n_____\n\nJob Description: {{ $('Parse HTTP response').item.json.jobDescription }}\n\nProfessional Information: {{ $('Google Docs2').item.json.content }}",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.9,
+      "position": [
+        2880,
+        860
+      ],
+      "id": "81fc08c8-dbef-4a8b-a860-42c0d311e5f9",
+      "name": "Summary Agent"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "RSS Feed Read": {
+      "main": [
+        [
+          {
+            "node": "Split Out",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Job HTML": {
+      "main": [
+        [
+          {
+            "node": "Parse HTTP response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Sheets": {
+      "main": [
+        [
+          {
+            "node": "Limit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse HTTP response": {
+      "main": [
+        [
+          {
+            "node": "Company and RSS feed filter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI": {
+      "main": [
+        []
+      ]
+    },
+    "OpenAI1": {
+      "main": [
+        []
+      ]
+    },
+    "Split Out": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items": {
+      "main": [
+        [
+          {
+            "node": "Execute Command",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Google Sheets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait": {
+      "main": [
+        [
+          {
+            "node": "Fetch Job HTML",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Limit": {
+      "main": [
+        [
+          {
+            "node": "Job Exists",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Job Exists": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Wait",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Code",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Docs": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code": {
+      "main": [
+        [
+          {
+            "node": "Google Drive",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Drive": {
+      "main": [
+        [
+          {
+            "node": "Google Docs1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Docs1": {
+      "main": [
+        [
+          {
+            "node": "Google Drive1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Drive1": {
+      "main": [
+        [
+          {
+            "node": "Google Drive3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Drive3": {
+      "main": [
+        [
+          {
+            "node": "Google Sheets3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Sheets3": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "RSS Feed Read",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Company and RSS feed filter": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Google Docs2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent1": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenRouter Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent1",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Docs2": {
+      "main": [
+        [
+          {
+            "node": "AI Agent1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenRouter Chat Model1": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Keyword Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DeepSeek Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Keyword Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenRouter Chat Model2": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Summary Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Keyword Agent": {
+      "main": [
+        [
+          {
+            "node": "Summary Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Summary Agent": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "8f033a44-885f-41ba-8b76-8e57e3638500",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "7c00ceafc5b32fb3ea157dcb1ed6f93f62317266803b9bc9a4fb7504f955a1c4"
+  },
+  "id": "KZfVnvSQj3KOiBWb",
+  "tags": [
+    {
+      "createdAt": "2025-05-04T06:18:03.557Z",
+      "updatedAt": "2025-05-04T06:18:03.557Z",
+      "id": "suXjo7ry8rDe9UZE",
+      "name": "Working"
+    }
+  ]
+}
